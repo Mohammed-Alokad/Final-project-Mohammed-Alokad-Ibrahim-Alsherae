@@ -1,27 +1,34 @@
-# Final-project-Mohammed-Alokad-Ibrahim-Alsherae
 import cv2
 import numpy as np
+import time
 
 # Load YOLO model
 net = cv2.dnn.readNet("yolov3.weights", "yolov3.cfg")
 layer_names = net.getLayerNames()
-output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
+output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 
 # Load class names
 with open("coco.names", "r") as f:
     classes = [line.strip() for line in f.readlines()]
 
+# Log file to record movements
+log_file = open("car_log.txt", "w")
+
 # Dummy functions to represent car movement
 def move_forward():
+    log_file.write(f"{time.ctime()}: Car moving forward\n")
     print("Car moving forward")
 
 def turn_left():
+    log_file.write(f"{time.ctime()}: Car turning left\n")
     print("Car turning left")
 
 def turn_right():
+    log_file.write(f"{time.ctime()}: Car turning right\n")
     print("Car turning right")
 
 def stop_car():
+    log_file.write(f"{time.ctime()}: Car stopped\n")
     print("Car stopped")
 
 def detect_lanes(frame):
@@ -35,12 +42,13 @@ def detect_lanes(frame):
         (width // 2, height // 2),
         (width, height)
     ]
-  
+
     mask = np.zeros_like(edges)
     cv2.fillPoly(mask, np.array([roi_vertices], np.int32), 255)
     masked_edges = cv2.bitwise_and(edges, mask)
 
-    lines = cv2.HoughLinesP(masked_edges, rho=2, theta=np.pi/180, threshold=100, minLineLength=50, maxLineGap=50)
+    # Adjusted Hough parameters for better lane detection
+    lines = cv2.HoughLinesP(masked_edges, rho=1, theta=np.pi/180, threshold=50, minLineLength=30, maxLineGap=10)
 
     direction = None
     if lines is not None:
@@ -53,7 +61,9 @@ def detect_lanes(frame):
                 direction = "right"
             else:
                 direction = "forward"
-  
+    else:
+        print("No lanes detected!")
+   
     return frame, direction
 
 def detect_objects(frame):
@@ -61,7 +71,7 @@ def detect_objects(frame):
     blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
     net.setInput(blob)
     outs = net.forward(output_layers)
-  
+
     class_ids = []
     confidences = []
     boxes = []
@@ -98,12 +108,16 @@ def detect_objects(frame):
     return frame, obstacle_detected
 
 # Use the camera URL instead of 0
-camera_url = "http://192.168.1.18:4747/video"  # Replace with your camera URL
+camera_url = "http://192.168.1.2:8080/video"  # Replace with your camera URL
 cap = cv2.VideoCapture(camera_url)
 
+# Timing variables
+fps = 0
 while True:
+    start_time = time.time()
     ret, frame = cap.read()
     if not ret:
+        print("Failed to retrieve frame. Exiting...")
         break
 
     lane_frame, direction = detect_lanes(frame.copy())
@@ -111,20 +125,35 @@ while True:
 
     combined_frame = cv2.addWeighted(lane_frame, 0.6, object_frame, 0.4, 0)
 
+    # Control logic with enhanced logging
     if obstacle_detected:
         stop_car()
+        print("Obstacle detected! Stopping the car.")
     else:
         if direction == "left":
             turn_left()
+            print("Turning left.")
         elif direction == "right":
             turn_right()
+            print("Turning right.")
         else:
             move_forward()
+            print("Moving forward.")
 
+    # Calculate and display FPS
+    elapsed_time = time.time() - start_time
+    fps = 1 / elapsed_time if elapsed_time > 0 else 0
+    cv2.putText(combined_frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+    # Display the combined frame with lane and object detection
     cv2.imshow("Self-Driving Car", combined_frame)
 
+    # Exit condition
     if cv2.waitKey(1) & 0xFF == 27:
+        print("Exiting the program.")
         break
 
+# Close the log file and release resources
+log_file.close()
 cap.release()
 cv2.destroyAllWindows()
